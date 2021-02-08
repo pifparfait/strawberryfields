@@ -211,7 +211,7 @@ class BosonicBackend(BaseBosonic):
         nmodes = prog.num_subsystems
         self.begin_circuit(nmodes)
         self.ancillae_samples_dict = {}
-        # Dummy initial weights, means and covs 
+        # Dummy initial weights, means and covs
         init_weights, init_means, init_covs = [[0] * nmodes for i in range(3)]
 
         vac_means = np.zeros((1, 2), dtype=complex)  # .tolist()
