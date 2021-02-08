@@ -74,6 +74,8 @@ class BosonicBackend(BaseBosonic):
         self.circuit = None
 
     def run_prog(self, prog, batches, **kwargs):
+        """Runs a strawberryfields program using the 
+        """
 
         from strawberryfields.ops import (
             Bosonic,
@@ -254,7 +256,7 @@ class BosonicBackend(BaseBosonic):
 
     def begin_circuit(self, num_subsystems, **kwargs):
         """Populates the circuit attribute with a BosonicModes object.
-        
+
         Args:
             num_subsystems (int): Sets the number of modes in the circuit.
         """
@@ -264,7 +266,7 @@ class BosonicBackend(BaseBosonic):
     def add_mode(self, peaks=1):
         r"""Adds a new mode to the circuit with a number of Gaussian peaks
         specified by peaks.
-         
+
          Args:
              peaks (int): number of Gaussian peaks in the new mode
         """
@@ -299,7 +301,7 @@ class BosonicBackend(BaseBosonic):
 
     def prepare_vacuum_state(self, mode):
         """Prepares a vacuum state in mode.
-        
+
         Args:
             mode (int): mode to be converted to vacuum.
         """
@@ -331,7 +333,7 @@ class BosonicBackend(BaseBosonic):
         self.circuit.squeeze(r, phi, mode)
 
     def prepare_displaced_squeezed_state(self, r_d, phi_d, r_s, phi_s, mode):
-        r"""Create a displaced, squeezed state in mode with squeezing 
+        r"""Create a displaced, squeezed state in mode with squeezing
         ``r_s*exp(1j*phi_s)`` and displacement ``r_d*exp(1j*phi_d)``.
 
         Args:
@@ -346,53 +348,64 @@ class BosonicBackend(BaseBosonic):
         self.circuit.displace(r_d, phi_d, mode)
 
     def prepare_cat(self, alpha, phi, cutoff, desc, D):
-        """ Prepares the arrays of weights, means and covs for a cat state"""
+        r"""Prepares the arrays of weights, means and covs for a cat state:
+            ``(|alpha> + exp(i*phi*pi)|-alpha>)/N``.
 
-        # case alpha = 0 -> prepare vacuum
+        Args:
+            alpha (float): alpha value of cat state
+            phi (float): phi value of cat state
+            desc (string): whether to use the 'real' or 'complex' representation
+            D (float): for 'real rep., quality parameter of approximation
+
+        Returns:
+            tuple: arrays of the weights, means and covariances for the state
+        """
+
+        # Case alpha = 0, prepare vacuum
         if np.isclose(np.absolute(alpha), 0):
-            return (
-                np.array([1], dtype=complex),
-                np.array([[0, 0]], dtype=complex),
-                np.array([0.5 * self.circuit.hbar * np.identity(2)]),
-            )
+            weights = np.array([1], dtype=complex)
+            means = np.array([[0, 0]], dtype=complex)
+            covs = np.array([0.5 * self.circuit.hbar * np.identity(2)])
+            return (weights, means, covs)
 
+        # Normalization factor
         norm = 1 / (2 * (1 + np.exp(-2 * np.absolute(alpha) ** 2) * np.cos(phi)))
         phi = np.pi * phi
+        hbar = self.circuit.hbar
 
         if desc == "complex":
-            rplus = np.sqrt(2 * self.circuit.hbar) * np.array([alpha.real, alpha.imag])
+            # Mean of |alpha><alpha| term
+            rplus = np.sqrt(2 * hbar) * np.array([alpha.real, alpha.imag])
+            # Mean of |alpha><-alpha| term
+            rcomplex = np.sqrt(2 * hbar) * np.array([1j * alpha.imag, -1j * alpha.real])
+            # Coefficient for complex Gaussians
             cplx_coef = np.exp(-2 * np.absolute(alpha) ** 2 - 1j * phi)
-            rcomplex = np.sqrt(2 * self.circuit.hbar) * np.array(
-                [1j * alpha.imag, -1j * alpha.real]
-            )
+            # Arrays of weights, means and covs
             weights = norm * np.array([1, 1, cplx_coef, np.conjugate(cplx_coef)])
             weights /= np.sum(weights)
             means = np.array([rplus, -rplus, rcomplex, np.conjugate(rcomplex)])
-            cov = 0.5 * self.circuit.hbar * np.identity(2, dtype=float)
-            cov = np.repeat(cov[None, :], weights.size, axis=0)
-            return weights, means, cov
+            covs = 0.5 * hbar * np.identity(2, dtype=float)
+            covs = np.repeat(covs[None, :], weights.size, axis=0)
+            return weights, means, covs
 
         elif desc == "real":
             # Defining useful constants
             a = np.absolute(alpha)
             phase = np.angle(alpha)
-            E = np.pi ** 2 * D * self.circuit.hbar / (16 * a ** 2)
-            v = self.circuit.hbar / 2
-            num_mean = 8 * a * np.sqrt(self.circuit.hbar) / (np.pi * D * np.sqrt(2))
+            E = np.pi ** 2 * D * hbar / (16 * a ** 2)
+            v = hbar / 2
+            num_mean = 8 * a * np.sqrt(hbar) / (np.pi * D * np.sqrt(2))
             denom_mean = 16 * a ** 2 / (np.pi ** 2 * D) + 2
-            coef_sigma = np.pi ** 2 * self.circuit.hbar / (8 * a ** 2 * (E + v))
+            coef_sigma = np.pi ** 2 * hbar / (8 * a ** 2 * (E + v))
             prefac = (
-                np.sqrt(np.pi * self.circuit.hbar)
-                * np.exp(0.25 * np.pi ** 2 * D)
-                / (4 * a)
-                / (np.sqrt(E + v))
+                np.sqrt(np.pi * hbar) * np.exp(0.25 * np.pi ** 2 * D) / (4 * a) / (np.sqrt(E + v))
             )
             z_max = int(
                 np.ceil(
                     2
                     * np.sqrt(2)
                     * a
-                    / (np.pi * np.sqrt(self.circuit.hbar))
+                    / (np.pi * np.sqrt(hbar))
                     * np.sqrt((-2 * (E + v) * np.log(cutoff / prefac)))
                 )
             )
@@ -426,17 +439,13 @@ class BosonicBackend(BaseBosonic):
                 axis=1,
             )
             means *= num_mean / denom_mean
-            means_real = np.sqrt(2 * self.circuit.hbar) * np.array([[a, 0], [-a, 0]], dtype=float)
+            means_real = np.sqrt(2 * hbar) * np.array([[a, 0], [-a, 0]], dtype=float)
             means = np.concatenate((means_real, means))
 
             # computing the covariance array
-            cov = np.array([[0.5 * self.circuit.hbar, 0], [0, (E * v) / (E + v)]])
+            cov = np.array([[0.5 * hbar, 0], [0, (E * v) / (E + v)]])
             cov = np.repeat(cov[None, :], 4 * z_max + 1, axis=0)
-            cov_real = (
-                0.5
-                * self.circuit.hbar
-                * np.array([[[1, 0], [0, 1]], [[1, 0], [0, 1]]], dtype=float)
-            )
+            cov_real = 0.5 * hbar * np.array([[[1, 0], [0, 1]], [[1, 0], [0, 1]]], dtype=float)
             cov = np.concatenate((cov_real, cov))
 
             # filter out 0 components
@@ -457,16 +466,39 @@ class BosonicBackend(BaseBosonic):
             raise ValueError('desc accept only "real" or "complex" arguments')
 
     def prepare_gkp(self, state, epsilon, cutoff, desc="real", shape="square"):
-        """ Prepares the arrays of weights, means and covs for a gkp state """
+        """Prepares the arrays of weights, means and covs for a gkp state:
+            ``cos(theta/2)|0>_{gkp} + exp(-i*phi)sin(theta/2)|1>_{gkp}``
+
+        Args:
+            state (list): [theta,phi] for qubit definition above
+            epsilon (float): finite energy parameter of the state
+            desc (string): 'real' or 'complex' reprsentation
+            shape (string): 'square' lattice or otherwise
+
+        Returns:
+            tuple: arrays of the weights, means and covariances for the state
+
+        Raises:
+            NotImplementedError: if the complex representation or a non-square lattice
+                                is attempted
+        """
 
         theta, phi = state[0], state[1]
 
         if shape == "square":
             if desc == "real":
 
-                def coef(arr):
-                    l, m = arr[:, 0], arr[:, 1]
-                    t = np.zeros(arr.shape[0], dtype=complex)
+                def coef(peak_loc):
+                    """Returns the value of the weight for a given peak.
+
+                    Args:
+                        peak_loc (array): location of the ideal peak in phase space
+
+                    Returns:
+                        float: weight of the peak
+                    """
+                    l, m = peak_loc[:, 0], peak_loc[:, 1]
+                    t = np.zeros(peak_loc.shape[0], dtype=complex)
                     t += np.logical_and(l % 2 == 0, m % 2 == 0)
                     t += np.logical_and(l % 4 == 0, m % 2 == 1) * (
                         np.cos(0.5 * theta) ** 2 - np.sin(0.5 * theta) ** 2
@@ -492,15 +524,17 @@ class BosonicBackend(BaseBosonic):
                         * np.sin(theta)
                         * np.sin(phi)
                     )
-
-                    return t * np.exp(
+                    prefactor = np.exp(
                         -np.pi
                         * 0.25
                         * (l ** 2 + m ** 2)
                         * (1 - np.exp(-2 * epsilon))
                         / (1 + np.exp(-2 * epsilon))
                     )
+                    weight = t * prefactor
+                    return weight
 
+                # Set the max peak value
                 z_max = int(
                     np.ceil(
                         np.sqrt(
@@ -514,6 +548,7 @@ class BosonicBackend(BaseBosonic):
                 )
                 damping = 2 * np.exp(-epsilon) / (1 + np.exp(-2 * epsilon))
 
+                # Create set of means before finite energy effects
                 means_gen = it.tee(
                     it.starmap(
                         lambda l, m: l + 1j * m, it.product(range(-z_max, z_max + 1), repeat=2)
@@ -532,22 +567,25 @@ class BosonicBackend(BaseBosonic):
                     axis=1,
                 )
 
+                # Calculate the weights for each peak
                 weights = coef(means)
                 filt = abs(weights) > cutoff
                 weights = weights[filt]
-                means = means[filt]
                 weights /= np.sum(weights)
+                # Apply finite energy effect to means
+                means = means[filt]
                 means *= 0.5 * damping * np.sqrt(np.pi * self.circuit.hbar)
-                cov = (
+                # Covariances all the same
+                covs = (
                     0.5
                     * self.circuit.hbar
                     * (1 - np.exp(-2 * epsilon))
                     / (1 + np.exp(-2 * epsilon))
                     * np.identity(2)
                 )
-                cov = np.repeat(cov[None, :], weights.size, axis=0)
+                covs = np.repeat(covs[None, :], weights.size, axis=0)
 
-                return weights, means, cov
+                return weights, means, covs
 
             elif desc == "complex":
                 raise ValueError("The complex description of GKP is not implemented")
@@ -555,7 +593,18 @@ class BosonicBackend(BaseBosonic):
             raise ValueError("Only square GKP are implemented for now")
 
     def prepare_fock(self, n, r=0.0001):
-        """ Prepares the arrays of weights, means and covs of a Fock state"""
+        """Prepares the arrays of weights, means and covs of a Fock state.
+
+        Args:
+            n (int): photon number
+            r (float): quality parameter for the approximation
+
+        Returns:
+            tuple: arrays of the weights, means and covariances for the state
+
+        Raises:
+            ValueError: if 1/r**2 is less than n
+        """
         if 1 / r ** 2 < n:
             raise ValueError(
                 "The parameter 1 / r ** 2={} is smaller than n={}".format(1 / r ** 2, n)
@@ -684,28 +733,28 @@ class BosonicBackend(BaseBosonic):
         Args:
             mode (int): mode to be measured
             shots (int): how many samples to collect
-            select (float): if supplied, what value to postselect
+            select (complex): if supplied, what value to postselect
 
         Returns:
             array: measured values
         """
         if select is None:
             res = 0.5 * self.circuit.heterodyne(mode, shots=shots)
+            return np.array([res[:, 0] + 1j * res[:, 1]])
         else:
             res = select
             self.circuit.post_select_heterodyne(mode, select)
-
-        return np.array([res[:, 0] + 1j * res[:, 1]])
+            return res
 
     def prepare_gaussian_state(self, r, V, modes):
         """Prepares a Gaussian state on modes from the mean vector and covariance
         matrix.
-        
+
         Args:
             r (array): vector of means in :math:`(x_1,p_1,x_2,p_2,\dots)` ordering
             V (array): covariance matrix in :math:`(x_1,p_1,x_2,p_2,\dots)` ordering
             modes (list): modes corresponding to the covariance matrix entries
-            
+
         Raises:
             ValueError: if the shapes of r or V do not match the number of modes.
         """
@@ -736,10 +785,10 @@ class BosonicBackend(BaseBosonic):
 
     def is_vacuum(self, tol=1e-12, **kwargs):
         """Determines whether or not the state is vacuum.
-        
+
         Args:
             tol (float): how close to 1 the fidelity must be
-        
+
         Returns:
             bool: whether the state is vacuum
         """
@@ -768,12 +817,10 @@ class BosonicBackend(BaseBosonic):
         self.circuit.thermal_loss(T, nbar, mode)
 
     def measure_fock(self, modes, shots=1, select=None, **kwargs):
-        raise NotImplementedError("Bosonic backend does not yet support Fock"
-                                  "measurements")
+        raise NotImplementedError("Bosonic backend does not yet support Fock" "measurements")
 
     def measure_threshold(self, modes, shots=1, select=None, **kwargs):
-        raise NotImplementedError("Bosonic backend does not yet support threshold"
-                                  "measurements")
+        raise NotImplementedError("Bosonic backend does not yet support threshold" "measurements")
 
     def state(self, modes=None, peaks=None, **kwargs):
         """Returns the state of the quantum simulation.
