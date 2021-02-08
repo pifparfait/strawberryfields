@@ -74,7 +74,22 @@ class BosonicBackend(BaseBosonic):
         self.circuit = None
 
     def run_prog(self, prog, batches, **kwargs):
-        """Runs a strawberryfields program using the 
+        """Runs a strawberryfields program using the bosonic backend.
+
+        Args:
+            prog (object): sf.Program instance
+            batches (int): number of batches
+
+        Returns:
+            tuple: list of applied commands,
+                    dictionary of measurement samples,
+                    dictionary of ancilla measurement samples
+
+        Raises:
+            NotApplicableError: if an op in the program does not apply to
+                                the bosonic backend
+            NotImplementedError: if an op in the program is not implemented
+                                 in the bosonic backend
         """
 
         from strawberryfields.ops import (
@@ -88,11 +103,11 @@ class BosonicBackend(BaseBosonic):
             MbSgate,
         )
 
-        # Initialize the circuit.
+        # Initialize the circuit. This applies all non-Gaussian state-prep
         self.init_circuit(prog)
 
         # Apply operations to circuit. For now, copied from LocalEngine;
-        # only change is to ignore preparation classes
+        # only change is to ignore preparation classes and ancilla-assisted gates
         # TODO: Deal with Preparation classes in the middle of a circuit.
         applied = []
         samples_dict = {}
@@ -100,9 +115,12 @@ class BosonicBackend(BaseBosonic):
         for cmd in prog.circuit:
             nongausspreps = (Bosonic, Catstate, Comb, DensityMatrix, Fock, GKP, Ket)
             ancilla_gates = (MbSgate,)
+            # For ancilla-assisted gates, if they return measurement values, store
+            # them in ancillae_samples_dict
             if type(cmd.op) in ancilla_gates:
                 try:
-                    # try to apply it to the backend and, if op is a measurement, store it in values
+                    # try to apply it to the backend and, if the op returns a measurement outcome
+                    # store it in a dictionary
                     val = cmd.op.apply(cmd.reg, self, **kwargs)
                     if val is not None:
                         for i, r in enumerate(cmd.reg):
@@ -128,9 +146,11 @@ class BosonicBackend(BaseBosonic):
                             cmd.op, self.backend, kwargs
                         )
                     ) from None
+
+            # Rest of operations applied as normal
             if type(cmd.op) not in (nongausspreps + ancilla_gates):
                 try:
-                    # try to apply it to the backend and, if op is a measurement, store it in values
+                    # try to apply it to the backend and, if op is a measurement, store outcome in values
                     val = cmd.op.apply(cmd.reg, self, **kwargs)
                     if val is not None:
                         for i, r in enumerate(cmd.reg):
@@ -169,7 +189,14 @@ class BosonicBackend(BaseBosonic):
 
     def init_circuit(self, prog, **kwargs):
         """Instantiate the circuit and initialize weights, means, and covs
-        depending on the Preparation classes."""
+        depending on the Preparation classes.
+
+        Args:
+            prog (object): sf.Program instance
+
+        Raises:
+            NotImplementedError: if Ket or DensityMatrix preparation used
+        """
 
         from strawberryfields.ops import (
             Bosonic,
@@ -184,6 +211,7 @@ class BosonicBackend(BaseBosonic):
         nmodes = prog.num_subsystems
         self.begin_circuit(nmodes)
         self.ancillae_samples_dict = {}
+        # Dummy initial weights, means and covs 
         init_weights, init_means, init_covs = [[0] * nmodes for i in range(3)]
 
         vac_means = np.zeros((1, 2), dtype=complex)  # .tolist()
@@ -203,37 +231,41 @@ class BosonicBackend(BaseBosonic):
                 for reg in labels:
                     # All the possible preparations should go in this loop
                     if type(cmd.op) == Bosonic:
-                        w, m, c = [pars[i].tolist() for i in range(3)]
+                        weights, means, covs = [pars[i].tolist() for i in range(3)]
 
                     elif type(cmd.op) == Catstate:
-                        w, m, c = self.prepare_cat(*pars)
+                        weights, means, covs = self.prepare_cat(*pars)
 
                     elif type(cmd.op) == GKP:
-                        w, m, c = self.prepare_gkp(*pars)
+                        weights, means, covs = self.prepare_gkp(*pars)
 
                     elif type(cmd.op) == Comb:
-                        w, m, c = self.prepare_comb(*pars)
+                        weights, means, covs = self.prepare_comb(*pars)
 
                     elif type(cmd.op) == Fock:
-                        w, m, c = self.prepare_fock(*pars)
+                        weights, means, covs = self.prepare_fock(*pars)
 
                     elif type(cmd.op) in (Ket, DensityMatrix):
-                        raise Exception("Not yet implemented!")
+                        raise NotImplementedError(
+                            "Ket and DensityMatrix preparation not implemented in bosonic backend."
+                        )
 
                     # The rest of the preparations are gaussian.
                     # TODO: initialize with Gaussian |vacuum> state
                     # directly by asking preparation methods below for
                     # the right weights, means, covs.
                     else:
-                        w, m, c = np.array([1], dtype=complex), vac_means, vac_covs
+                        weights, means, covs = np.array([1], dtype=complex), vac_means, vac_covs
 
-                    init_weights[reg] = w
-                    init_means[reg] = m
-                    init_covs[reg] = c
+                    init_weights[reg] = weights
+                    init_means[reg] = means
+                    init_covs[reg] = covs
 
                 reg_list += labels
 
         # Assume unused modes in the circuit are vacua.
+        # If there are any Gaussian state preparations, these will be handled
+        # by run_prog
         for i in set(range(nmodes)).difference(reg_list):
             init_weights[i], init_means[i], init_covs[i] = np.array([1]), vac_means, vac_covs
 
