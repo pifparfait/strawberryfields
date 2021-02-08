@@ -1,4 +1,4 @@
-# Copyright 2020 Xanadu Quantum Technologies Inc.
+# Copyright 2021 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,12 +13,10 @@
 # limitations under the License.
 # pylint: disable=too-many-public-methods
 """Bosonic backend"""
-import warnings
 import numpy as np
 
 from scipy.special import comb
 from scipy.linalg import block_diag
-from thewalrus.samples import hafnian_sample_state, torontonian_sample_state
 import itertools as it
 
 from strawberryfields.backends import BaseBosonic
@@ -182,8 +180,8 @@ class BosonicBackend(BaseBosonic):
         )
 
         nmodes = prog.num_subsystems
+        self.begin_circuit(nmodes)
         self.ancillae_samples_dict = {}
-        self.circuit = BosonicModes()
         init_weights, init_means, init_covs = [[0] * nmodes for i in range(3)]
 
         vac_means = np.zeros((1, 2), dtype=complex)  # .tolist()
@@ -250,47 +248,99 @@ class BosonicBackend(BaseBosonic):
         covs = np.array([block_diag(*tup) for tup in cov_combs])
 
         # Declare circuit attributes.
-        self.circuit.nlen = nmodes
-        self.circuit.to_xp = to_xp(nmodes)
-        self.circuit.from_xp = from_xp(nmodes)
-        self.circuit.active = list(np.arange(nmodes, dtype=int))
-
         self.circuit.weights = weights
         self.circuit.means = means
         self.circuit.covs = covs
 
     def begin_circuit(self, num_subsystems, **kwargs):
+        """Populates the circuit attribute with a BosonicModes object.
+        
+        Args:
+            num_subsystems (int): Sets the number of modes in the circuit.
+        """
         self._init_modes = num_subsystems
-        self.circuit = BosonicModes()
-        self.circuit.reset(num_subsystems, 1)
+        self.circuit = BosonicModes(num_subsystems)
 
-    def add_mode(self, n=1):
-        self.circuit.add_mode([n])
+    def add_mode(self, peaks=1):
+        r"""Adds a new mode to the circuit with a number of Gaussian peaks
+        specified by peaks.
+         
+         Args:
+             peaks (int): number of Gaussian peaks in the new mode
+        """
+        self.circuit.add_mode([peaks])
 
     def del_mode(self, modes):
+        r"""Delete modes from the circuit.
+
+        Args:
+            modes (int or list): modes to be deleted.
+        """
         self.circuit.del_mode(modes)
 
     def get_modes(self):
+        r"""Return the modes that are currently active. Active modes
+        are those created by the user which have not been deleted.
+        If a mode is deleted, its entry in the list is ``None``."""
         return self.circuit.get_modes()
 
     def reset(self, **kwargs):
+        """Reset all modes in the circuit to vacuum."""
         self.circuit.reset(self._init_modes, 1)
 
     def prepare_thermal_state(self, nbar, mode):
+        r"""Initializes a state of mode in a thermal state with the given population.
+
+        Args:
+            nbar (float): mean photon number of the thermal state
+            mode (int): mode that get initialized
+        """
         self.circuit.init_thermal(nbar, mode)
 
     def prepare_vacuum_state(self, mode):
+        """Prepares a vacuum state in mode.
+        
+        Args:
+            mode (int): mode to be converted to vacuum.
+        """
         self.circuit.loss(0.0, mode)
 
     def prepare_coherent_state(self, r, phi, mode):
+        r"""Create a coherent state in mode with alpha=``r*np.exp(1j*phi)``.
+
+        Args:
+            r (float): coherent state magnitude
+            phi (float): coherent state phase
+            mode (int): mode to be made into coherent state
+        """
         self.circuit.loss(0.0, mode)
         self.circuit.displace(r, phi, mode)
 
     def prepare_squeezed_state(self, r, phi, mode):
+        r"""Create a squeezed state in mode with squeezing ``r*exp(1j*phi)``.
+
+        Args:
+            r (float): squeezing magnitude
+            phi (float): squeezing phase
+            mode (int): mode to be made into a squeezed state
+
+        Raises:
+            ValueError: if the mode is not in the list of active modes
+        """
         self.circuit.loss(0.0, mode)
         self.circuit.squeeze(r, phi, mode)
 
     def prepare_displaced_squeezed_state(self, r_d, phi_d, r_s, phi_s, mode):
+        r"""Create a displaced, squeezed state in mode with squeezing 
+        ``r_s*exp(1j*phi_s)`` and displacement ``r_d*exp(1j*phi_d)``.
+
+        Args:
+            r_d (float): displacement magnitude
+            phi_d (float): displacement phase
+            r_s (float): squeezing magnitude
+            phi_s (float): squeezing phase
+            mode (int): mode to be made into a displaced, squeezed state
+        """
         self.circuit.loss(0.0, mode)
         self.circuit.squeeze(r_s, phi_s, mode)
         self.circuit.displace(r_d, phi_d, mode)
@@ -538,12 +588,32 @@ class BosonicBackend(BaseBosonic):
         raise ValueError("Squeezed comb states not implemented")
 
     def rotation(self, phi, mode):
+        r"""Implement a phase shift in mode by phi.
+
+        Args:
+           phi (float): phase
+           mode (int): mode to be phase shifted
+        """
         self.circuit.phase_shift(phi, mode)
 
     def displacement(self, r, phi, mode):
+        r"""Displace mode by the amount ``r*np.exp(1j*phi)``.
+
+        Args:
+            r (float): displacement magnitude
+            phi (float): displacement phase
+            mode (int): mode to be displaced
+        """
         self.circuit.displace(r, phi, mode)
 
     def squeeze(self, r, phi, mode):
+        r"""Squeeze mode by the amount ``r*exp(1j*phi)``.
+
+        Args:
+            r (float): squeezing magnitude
+            phi (float): squeezing phase
+            mode (int): mode to be squeezed
+        """
         self.circuit.squeeze(r, phi, mode)
 
     def mbsqueeze(self, mode, r, phi, r_anc, eta_anc, avg):
@@ -554,21 +624,40 @@ class BosonicBackend(BaseBosonic):
             return ancilla_val
 
     def beamsplitter(self, theta, phi, mode1, mode2):
+        r"""Implement a beam splitter operation between mode1 and mode2.
+
+        Args:
+            theta (float): real beamsplitter angle
+            phi (float): complex beamsplitter angle
+            mode1 (int): first mode
+            mode2 (int): second mode
+        """
         self.circuit.beamsplitter(theta, phi, mode1, mode2)
 
-    def gaussian_cptp(self, modes, X, Y):
-        if not isinstance(Y, int):
+    def gaussian_cptp(self, modes, X, Y=None):
+        r"""Transforms the state according to a deterministic Gaussian CPTP map.
+
+        Args:
+            modes (list): list of modes on which ``(X,Y)`` act
+            X (array): matrix for multiplicative part of transformation
+            Y (array): matrix for additive part of transformation
+        """
+        if Y is not None:
             X2, Y2 = self.circuit.expandXY(modes, X, Y)
             self.circuit.apply_channel(X2, Y2)
         else:
             X2 = self.circuit.expandS(modes, X)
-            self.circuit.apply_channel(X, 0)
+            self.circuit.apply_channel(X, Y)
 
     def measure_homodyne(self, phi, mode, shots=1, select=None, **kwargs):
         r"""Measure a :ref:`phase space quadrature <homodyne>` of the given mode.
 
         See :meth:`.BaseBackend.measure_homodyne`.
-
+        Args:
+            phi (float): angle in phase space for the homodyne
+            mode (int): mode to be measured
+            shots (int): how many samples to collect
+            select (float): if supplied, what value to postselect
         Keyword Args:
             eps (float): Homodyne amounts to projection onto a quadrature eigenstate.
                 This eigenstate is approximated by a squeezed state whose variance has been
@@ -576,20 +665,9 @@ class BosonicBackend(BaseBosonic):
                 Perfect homodyning is obtained when ``eps`` :math:`\to 0`.
 
         Returns:
-            float: measured value
+            array: measured values
         """
-        if shots != 1:
-            if select is not None:
-                raise NotImplementedError(
-                    "Gaussian backend currently does not support "
-                    "postselection if shots != 1 for homodyne measurement"
-                )
-
-            raise NotImplementedError(
-                "Gaussian backend currently does not support " "shots != 1 for homodyne measurement"
-            )
-
-        # phi is the rotation of the measurement operator, hence the minus
+        # Phi is the rotation of the measurement operator, hence the minus
         self.circuit.phase_shift(-phi, mode)
 
         if select is None:
@@ -598,35 +676,39 @@ class BosonicBackend(BaseBosonic):
             val = select * 2 / np.sqrt(2 * self.circuit.hbar)
             self.circuit.post_select_homodyne(mode, val, **kwargs)
 
-        # `qs` will always be a single value since multiple shots is not supported
-        return np.array([[val * np.sqrt(2 * self.circuit.hbar) / 2]])
+        return np.array([val * np.sqrt(2 * self.circuit.hbar) / 2])
 
     def measure_heterodyne(self, mode, shots=1, select=None):
+        r"""Measure heterodyne of the given mode.
 
-        if shots != 1:
-            if select is not None:
-                raise NotImplementedError(
-                    "Gaussian backend currently does not support "
-                    "postselection if shots != 1 for heterodyne measurement"
-                )
+        Args:
+            mode (int): mode to be measured
+            shots (int): how many samples to collect
+            select (float): if supplied, what value to postselect
 
-            raise NotImplementedError(
-                "Gaussian backend currently does not support "
-                "shots != 1 for heterodyne measurement"
-            )
-
+        Returns:
+            array: measured values
+        """
         if select is None:
-            m = np.identity(2)
-            res = 0.5 * self.circuit.measure_dyne(m, [mode], shots=shots)
-            return np.array([[res[0, 0] + 1j * res[0, 1]]])
+            res = 0.5 * self.circuit.heterodyne(mode, shots=shots)
+        else:
+            res = select
+            self.circuit.post_select_heterodyne(mode, select)
 
-        res = select
-        self.circuit.post_select_heterodyne(mode, select)
-
-        # `res` will always be a single value since multiple shots is not supported
-        return np.array([[res]])
+        return np.array([res[:, 0] + 1j * res[:, 1]])
 
     def prepare_gaussian_state(self, r, V, modes):
+        """Prepares a Gaussian state on modes from the mean vector and covariance
+        matrix.
+        
+        Args:
+            r (array): vector of means in :math:`(x_1,p_1,x_2,p_2,\dots)` ordering
+            V (array): covariance matrix in :math:`(x_1,p_1,x_2,p_2,\dots)` ordering
+            modes (list): modes corresponding to the covariance matrix entries
+            
+        Raises:
+            ValueError: if the shapes of r or V do not match the number of modes.
+        """
         if isinstance(modes, int):
             modes = [modes]
 
@@ -649,79 +731,49 @@ class BosonicBackend(BaseBosonic):
         C = changebasis(N)
         cov = C @ V @ C.T
 
-        self.circuit.fromscovmat(cov, modes)
-        self.circuit.fromsmean(means, modes)
+        self.circuit.from_covmat(cov, modes)
+        self.circuit.from_mean(means, modes)
 
     def is_vacuum(self, tol=1e-12, **kwargs):
+        """Determines whether or not the state is vacuum.
+        
+        Args:
+            tol (float): how close to 1 the fidelity must be
+        
+        Returns:
+            bool: whether the state is vacuum
+        """
         fid = self.state().fidelity_vacuum()
         return np.abs(fid - 1) <= tol
 
     def loss(self, T, mode):
+        r"""Implements a loss channel in mode. T is the loss parameter that must be
+        between 0 and 1.
+
+        Args:
+            T (float): loss amount is \sqrt{T}
+            mode (int): mode that loses energy
+        """
         self.circuit.loss(T, mode)
 
     def thermal_loss(self, T, nbar, mode):
+        r"""Implements the thermal loss channel in mode. T is the loss parameter that must
+        be between 0 and 1.
+
+        Args:
+            T (float): loss amount is \sqrt{T}
+            nbar (float): mean photon number of the thermal bath
+            mode (int): mode that undegoes thermal loss
+        """
         self.circuit.thermal_loss(T, nbar, mode)
 
     def measure_fock(self, modes, shots=1, select=None, **kwargs):
-        # if select is not None:
-        #     raise NotImplementedError(
-        #         "Gaussian backend currently does not support " "postselection"
-        #     )
-        # if shots != 1:
-        #     warnings.warn(
-        #         "Cannot simulate non-Gaussian states. "
-        #         "Conditional state after Fock measurement has not been updated."
-        #     )
-
-        # mu = self.circuit.mean
-        # mean = self.circuit.smeanxp()
-        # cov = self.circuit.scovmatxp()
-
-        # x_idxs = np.array(modes)
-        # p_idxs = x_idxs + len(mu)
-        # modes_idxs = np.concatenate([x_idxs, p_idxs])
-        # reduced_cov = cov[np.ix_(modes_idxs, modes_idxs)]
-        # reduced_mean = mean[modes_idxs]
-
-        # # check we are sampling from a gaussian state with zero mean
-        # if np.allclose(mu, np.zeros_like(mu)):
-        #     samples = hafnian_sample_state(reduced_cov, shots)
-        # else:
-        #     samples = hafnian_sample_state(reduced_cov, shots, mean=reduced_mean)
-
-        # return samples
-
-        # TODO
-        pass
+        raise NotImplementedError("Bosonic backend does not yet support Fock"
+                                  "measurements")
 
     def measure_threshold(self, modes, shots=1, select=None, **kwargs):
-        # if shots != 1:
-        #     if select is not None:
-        #         raise NotImplementedError(
-        #             "Gaussian backend currently does not support " "postselection"
-        #         )
-        #     warnings.warn(
-        #         "Cannot simulate non-Gaussian states. "
-        #         "Conditional state after Threshold measurement has not been updated."
-        #     )
-
-        # mu = self.circuit.mean
-        # cov = self.circuit.scovmatxp()
-        # # check we are sampling from a gaussian state with zero mean
-        # if not np.allclose(mu, np.zeros_like(mu)):
-        #     raise NotImplementedError(
-        #         "Threshold measurement is only supported for " "Gaussian states with zero mean"
-        #     )
-        # x_idxs = np.array(modes)
-        # p_idxs = x_idxs + len(mu)
-        # modes_idxs = np.concatenate([x_idxs, p_idxs])
-        # reduced_cov = cov[np.ix_(modes_idxs, modes_idxs)]
-        # samples = torontonian_sample_state(reduced_cov, shots)
-
-        # return samples
-
-        # TODO
-        pass
+        raise NotImplementedError("Bosonic backend does not yet support threshold"
+                                  "measurements")
 
     def state(self, modes=None, peaks=None, **kwargs):
         """Returns the state of the quantum simulation.
@@ -729,7 +781,7 @@ class BosonicBackend(BaseBosonic):
         See :meth:`.BaseBackend.state`.
 
         Returns:
-            BosonicState: state description
+            BosonicState: object containing all state information
         """
         if isinstance(modes, int):
             modes = [modes]
@@ -747,16 +799,6 @@ class BosonicBackend(BaseBosonic):
         mode_ind = np.sort(np.append(2 * np.array(modes), 2 * np.array(modes) + 1))
 
         weights = self.circuit.weights
-
-        # Generate dictionary between tuples of the form (peek_0, ... peek_i)
-        # where the subscript denotes the mode, and the corresponding index
-        # in the cov object.
-        # if peaks is None:
-        #     peaks = tuple(np.zeros(len(modes)))
-        # g_list = [np.arange(len(w)) for i in range(len(modes))]
-        # combs = it.product(*g_list)
-        # covs_dict = {tuple: index for (index, tuple) in enumerate(combs)}
-
         covmats = self.circuit.covs[:, mode_ind, :][:, :, mode_ind]
         means = self.circuit.means[:, mode_ind]
 
