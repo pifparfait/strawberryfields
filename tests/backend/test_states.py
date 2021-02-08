@@ -565,7 +565,7 @@ class TestParityExpectation:
 
         assert np.allclose(state.parity_expectation([0]), (1 / ((2 * m) + 1)), atol=tol, rtol=0)
 
-
+@pytest.mark.backends("fock", "tf","gaussian")
 class TestFidelities:
     """Fidelity tests."""
 
