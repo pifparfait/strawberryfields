@@ -58,7 +58,7 @@ class TestRepresentationIndependent:
 
 # at the moment the Fock backends don't support
 # thermal loss channels.
-@pytest.mark.backends("gaussian")
+@pytest.mark.backends("gaussian","bosonic")
 class TestThermalLossChannel:
     """Tests that make use of the Gaussian representation to test
     thermal loss channels."""
@@ -83,7 +83,11 @@ class TestThermalLossChannel:
         state2 = backend.state()
 
         assert np.allclose(state1.means(), state2.means(), atol=tol, rtol=0)
-        assert np.allclose(state1.cov(), state2.cov(), atol=tol, rtol=0)
+        # Gaussian has one cov, bosonic has multiple covs
+        if state1._basis == "gaussian":
+            assert np.allclose(state1.cov(), state2.cov(), atol=tol, rtol=0)
+        elif state1._basis == "bosonic":
+            assert np.allclose(state1.covs(), state2.covs(), atol=tol, rtol=0)
 
     @pytest.mark.parametrize("nbar", MAG_ALPHAS)
     def test_full_thermal_loss_channel(self, nbar, setup_backend, pure, tol):
@@ -103,7 +107,10 @@ class TestThermalLossChannel:
         state2 = backend.state()
 
         assert np.allclose(state1.means(), state2.means(), atol=tol, rtol=0)
-        assert np.allclose(state1.cov(), state2.cov(), atol=tol, rtol=0)
+        if state1._basis == "gaussian":
+            assert np.allclose(state1.cov(), state2.cov(), atol=tol, rtol=0)
+        elif state1._basis == "bosonic":
+            assert np.allclose(state1.covs(), state2.covs(), atol=tol, rtol=0)
 
     @pytest.mark.parametrize("T", LOSS_TS)
     @pytest.mark.parametrize("nbar", MAG_ALPHAS)
@@ -116,79 +123,10 @@ class TestThermalLossChannel:
         backend.squeeze(r, 0, 0)
         backend.thermal_loss(T, nbar, 0)
         state = backend.state()
-
-        res = state.cov()
-        exp = np.diag(
-            [
-                T * np.exp(-2 * r) + (1 - T) * (2 * nbar + 1),
-                T * np.exp(2 * r) + (1 - T) * (2 * nbar + 1),
-            ]
-        )*hbar/2
-
-        print(res, exp)
-
-        assert np.allclose(res, exp, atol=tol, rtol=0)
-
-@pytest.mark.backends("bosonic")
-class TestThermalLossChannelBosonic:
-    """Tests that make use of the Gaussian representation to test
-    thermal loss channels."""
-
-    @pytest.mark.parametrize("T", LOSS_TS)
-    def test_thermal_loss_channel_with_vacuum(self, T, setup_backend, pure, tol):
-        """Tests thermal loss channel with nbar=0 (should be same as loss channel)."""
-        backend = setup_backend(1)
-        z = 0.432 * np.exp(1j * 0.534)
-        alpha = 0.654 + 1j * 0.239
-        nbar = 0.0
-
-        backend.squeeze(np.abs(z), np.angle(z), 0)
-        backend.displacement(np.abs(alpha), np.angle(alpha), 0)
-        backend.loss(T, 0)
-        state1 = backend.state()
-
-        backend.reset(pure=pure)
-        backend.squeeze(np.abs(z), np.angle(z), 0)
-        backend.displacement(np.abs(alpha), np.angle(alpha), 0)
-        backend.thermal_loss(T, nbar, 0)
-        state2 = backend.state()
-
-        assert np.allclose(state1.means(), state2.means(), atol=tol, rtol=0)
-        assert np.allclose(state1.covs(), state2.covs(), atol=tol, rtol=0)
-
-    @pytest.mark.parametrize("nbar", MAG_ALPHAS)
-    def test_full_thermal_loss_channel(self, nbar, setup_backend, pure, tol):
-        """Tests thermal loss channel with T=0 (should produce a thermal state)."""
-        backend = setup_backend(1)
-        z = 0.432 * np.exp(1j * 0.534)
-        alpha = 0.654 + 1j * 0.239
-        T = 0
-
-        backend.prepare_thermal_state(nbar, 0)
-        state1 = backend.state()
-
-        backend.reset(pure=pure)
-        backend.squeeze(np.abs(z), np.angle(z), 0)
-        backend.displacement(np.abs(alpha), np.angle(alpha), 0)
-        backend.thermal_loss(T, nbar, 0)
-        state2 = backend.state()
-
-        assert np.allclose(state1.means(), state2.means(), atol=tol, rtol=0)
-        assert np.allclose(state1.covs(), state2.covs(), atol=tol, rtol=0)
-
-    @pytest.mark.parametrize("T", LOSS_TS)
-    @pytest.mark.parametrize("nbar", MAG_ALPHAS)
-    def test_thermal_loss_channel_on_squeezed_state(
-        self, nbar, T, setup_backend, pure, tol, hbar
-    ):
-        """Tests thermal loss channel on a squeezed state"""
-        backend = setup_backend(1)
-        r = 0.432
-        backend.squeeze(r, 0, 0)
-        backend.thermal_loss(T, nbar, 0)
-        state = backend.state()
-
-        res = state.covs()
+        if state._basis == "gaussian":
+            res = state.cov()
+        elif state._basis == "bosonic":
+            res = state.covs()
         exp = np.diag(
             [
                 T * np.exp(-2 * r) + (1 - T) * (2 * nbar + 1),
