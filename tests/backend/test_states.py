@@ -61,7 +61,7 @@ class TestBackendStateCreation:
         state = backend.state(modes=[0])
         f = state.fidelity_coherent([a])
         assert np.allclose(f, 1, atol=tol, rtol=0)
-
+    
     def test_reduced_state_fock_probs(self, cutoff, setup_backend, batch_size, tol):
         """Test backend calculates correct fock prob of reduced coherent state"""
         backend = setup_backend(2)
@@ -163,7 +163,7 @@ class TestBaseStateMeanPhotonNumber:
         assert np.allclose(mean_photon, mean_ex, atol=tol, rtol=0)
         assert np.allclose(var, var_ex, atol=tol, rtol=0)
 
-
+@pytest.mark.backends("fock", "tf","gaussian")
 class TestBaseFockKetDensityMatrix:
     """Tests for the ket, dm, and reduced density matrix function."""
 
@@ -319,7 +319,7 @@ class TestQuadratureExpectations:
 
         assert np.allclose(res.flatten(), res_exact.flatten(), atol=tol, rtol=0)
 
-
+@pytest.mark.backends("fock", "tf","gaussian")
 class TestNumberExpectation:
     """Multimode photon-number expectation value tests"""
 
