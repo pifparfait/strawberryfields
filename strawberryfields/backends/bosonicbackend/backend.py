@@ -27,11 +27,13 @@ from strawberryfields.backends.states import BaseBosonicState
 from .bosoniccircuit import BosonicModes
 from ..base import NotApplicableError
 
+
 def kron_list(l):
     """Take Kronecker products of a list of lists."""
     if len(l) == 1:
         return l[0]
     return np.kron(l[0], kron_list(l[1:]))
+
 
 class BosonicBackend(BaseBosonic):
     """Bosonic backend class."""
@@ -45,7 +47,7 @@ class BosonicBackend(BaseBosonic):
         self._supported["mixed_states"] = True
         self._init_modes = None
         self.circuit = None
-        
+
     def run_prog(self, prog, batches, **kwargs):
         """Runs a strawberryfields program using the bosonic backend.
 
@@ -363,7 +365,7 @@ class BosonicBackend(BaseBosonic):
         self.circuit.loss(0.0, mode)
         self.circuit.squeeze(r_s, phi_s, mode)
         self.circuit.displace(r_d, phi_d, mode)
-        
+
     def prepare_cat(self, alpha, phi, cutoff, desc, D):
         r"""Prepares the arrays of weights, means and covs for a cat state:
             ``(|alpha> + exp(i*phi*pi)|-alpha>)/N``.
