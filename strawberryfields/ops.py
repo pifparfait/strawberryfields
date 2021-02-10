@@ -28,10 +28,16 @@ import scipy.special as ssp
 import strawberryfields as sf
 import strawberryfields.program_utils as pu
 import strawberryfields.decompositions as dec
-from .backends.states import BaseFockState, BaseGaussianState
+from .backends.states import BaseFockState, BaseGaussianState, BaseBosonicState
 from .backends.shared_ops import changebasis
 from .program_utils import Command, RegRef, MergeFailure
-from .parameters import par_regref_deps, par_str, par_evaluate, par_is_symbolic, par_funcs as pf
+from .parameters import (
+    par_regref_deps,
+    par_str,
+    par_evaluate,
+    par_is_symbolic,
+    par_funcs as pf,
+)
 
 # pylint: disable=abstract-method
 # pylint: disable=protected-access
@@ -786,6 +792,15 @@ class Fock(Preparation):
         backend.prepare_fock_state(p[0], *reg)
 
 
+class Bosonic(Preparation):
+    def __init__(self, weights=None, covs=None, means=None):
+        self.p.append(weights, covs, means)
+        return
+
+    def _apply(self, reg, backend, **kwargs):
+        return
+
+
 class Catstate(Preparation):
     r"""Prepare a mode in a cat state.
 
@@ -828,8 +843,8 @@ class Catstate(Preparation):
         the squeezed single photon state :math:`S\ket{1}`.
     """
 
-    def __init__(self, alpha=0, p=0):
-        super().__init__([alpha, p])
+    def __init__(self, alpha=0, p=0, cutoff=1e-12, desc="complex", D=2):
+        super().__init__([alpha, p, cutoff, desc, D])
 
     def _apply(self, reg, backend, **kwargs):
         alpha = self.p[0]
@@ -857,6 +872,18 @@ class Catstate(Preparation):
         ket = par_evaluate(ket)
 
         backend.prepare_ket_state(ket, *reg)
+
+
+class GKP(Preparation):
+    r"""Prepare a mode in a GKP state."""
+
+    def __init__(self, state=[0, 0], epsilon=0.2, cutoff=1e-12, desc="real", shape="square"):
+        super().__init__([state, epsilon, cutoff, desc, shape])
+
+
+class Comb(Preparation):
+    r"""Prepare a mode in a comb state."""
+    pass
 
 
 class Ket(Preparation):
@@ -1284,6 +1311,22 @@ class ThermalLossChannel(Channel):
     def _apply(self, reg, backend, **kwargs):
         p = par_evaluate(self.p)
         backend.thermal_loss(p[0], p[1], *reg)
+
+
+class MbSgate(Channel):
+    r"""Phase space measurement-based squeezing gate."""
+
+    def __init__(self, r, phi=0.0, r_anc=10.0, eta_anc=1.0, avg=True):
+        super().__init__([r, phi, r_anc, eta_anc, avg])
+
+    def _apply(self, reg, backend, **kwargs):
+        r, phi, r_anc, eta_anc, avg = par_evaluate(self.p)
+        if avg:
+            backend.mbsqueeze(*reg, r, phi, r_anc, eta_anc, avg)
+        if not avg:
+            s = np.sqrt(sf.hbar / 2)
+            ancilla_val = backend.mbsqueeze(*reg, r, phi, r_anc, eta_anc, avg)
+            return ancilla_val / s
 
 
 # ====================================================================
@@ -1835,7 +1878,12 @@ class S2gate(Gate):
         # two opposite squeezers sandwiched between 50% beamsplitters
         S = Sgate(self.p[0], self.p[1])
         BS = BSgate(np.pi / 4, 0)
-        return [Command(BS, reg), Command(S, reg[0]), Command(S.H, reg[1]), Command(BS.H, reg)]
+        return [
+            Command(BS, reg),
+            Command(S, reg[0]),
+            Command(S.H, reg[1]),
+            Command(BS.H, reg),
+        ]
 
 
 class CXgate(Gate):
@@ -2473,7 +2521,8 @@ class BipartiteGraphEmbed(Decomposition):
                 if not (drop_identity and np.all(X == np.identity(len(X)))):
                     cmds.append(
                         Command(
-                            Interferometer(X, mesh=mesh, drop_identity=drop_identity, tol=tol), _reg
+                            Interferometer(X, mesh=mesh, drop_identity=drop_identity, tol=tol),
+                            _reg,
                         )
                     )
 
@@ -2775,7 +2824,16 @@ MeasureHD = MeasureHeterodyne()
 
 Fourier = Fouriergate()
 
-shorthands = ["New", "Del", "Vac", "MeasureX", "MeasureP", "MeasureHD", "Fourier", "All"]
+shorthands = [
+    "New",
+    "Del",
+    "Vac",
+    "MeasureX",
+    "MeasureP",
+    "MeasureHD",
+    "Fourier",
+    "All",
+]
 
 # =======================================================================
 # here we list different classes of operations for unit testing purposes
@@ -2796,11 +2854,17 @@ simple_state_preparations = (
     Catstate,
     Thermal,
 )  # have __init__ methods with default arguments
-state_preparations = simple_state_preparations + (Ket, DensityMatrix)
+state_preparations = simple_state_preparations + (Ket, DensityMatrix, Bosonic, GKP, Comb)
 
 measurements = (MeasureFock, MeasureHomodyne, MeasureHeterodyne, MeasureThreshold)
 
-decompositions = (Interferometer, BipartiteGraphEmbed, GraphEmbed, GaussianTransform, Gaussian)
+decompositions = (
+    Interferometer,
+    BipartiteGraphEmbed,
+    GraphEmbed,
+    GaussianTransform,
+    Gaussian,
+)
 
 # =======================================================================
 # exported symbols
