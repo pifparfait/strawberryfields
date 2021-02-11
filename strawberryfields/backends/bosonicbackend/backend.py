@@ -611,7 +611,7 @@ class BosonicBackend(BaseBosonic):
         else:
             raise ValueError("Only square GKP are implemented for now")
 
-    def prepare_fock(self, n, r=0.0001):
+    def prepare_fock(self, n, r=0.05):
         """Prepares the arrays of weights, means and covs of a Fock state.
 
         Args:
