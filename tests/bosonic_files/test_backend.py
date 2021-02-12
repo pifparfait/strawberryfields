@@ -226,8 +226,9 @@ class TestBosonicFockStates:
         assert state.covs().shape == (n+1,2,2)
         
         #Check mean photon is close to n
-        mean,_ = state.mean_photon(0)
+        mean,var = state.mean_photon(0)
         assert np.allclose(mean,n,atol=r_fock)
+        assert np.allclose(var,0,atol=r_fock)
         
         # Weights, means and covs should be real
         assert np.allclose(state.weights().real, state.weights())
