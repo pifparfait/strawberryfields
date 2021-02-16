@@ -68,12 +68,11 @@ class BosonicBackend(BaseBosonic):
         self._init_modes = None
         self.circuit = None
 
-    def run_prog(self, prog, batches, **kwargs):
+    def run_prog(self, prog, **kwargs):
         """Runs a strawberryfields program using the bosonic backend.
 
         Args:
             prog (object): sf.Program instance
-            batches (int): number of batches
 
         Returns:
             tuple: list of applied commands,
@@ -90,7 +89,6 @@ class BosonicBackend(BaseBosonic):
         from strawberryfields.ops import (
             Bosonic,
             Catstate,
-            Comb,
             DensityMatrix,
             Fock,
             GKP,
@@ -108,39 +106,21 @@ class BosonicBackend(BaseBosonic):
         samples_dict = {}
         all_samples = {}
         for cmd in prog.circuit:
-            nongausspreps = (Bosonic, Catstate, Comb, DensityMatrix, Fock, GKP, Ket)
+            nongausspreps = (Bosonic, Catstate, DensityMatrix, Fock, GKP, Ket)
             ancilla_gates = (MbSgate,)
             # For ancilla-assisted gates, if they return measurement values, store
             # them in ancillae_samples_dict
             if type(cmd.op) in ancilla_gates:
-                try:
-                    # try to apply it to the backend and, if the op returns a measurement outcome
-                    # store it in a dictionary
-                    val = cmd.op.apply(cmd.reg, self, **kwargs)
-                    if val is not None:
-                        for i, r in enumerate(cmd.reg):
-                            if r.ind not in self.ancillae_samples_dict.keys():
-                                self.ancillae_samples_dict[r.ind] = []
-                            if batches:
-                                self.ancillae_samples_dict[r.ind].append(val[:, :, i])
-                            else:
-                                self.ancillae_samples_dict[r.ind].append(val[:, i])
+                # if the op returns a measurement outcome store it in a dictionary
+                val = cmd.op.apply(cmd.reg, self, **kwargs)
+                if val is not None:
+                    for i, r in enumerate(cmd.reg):
+                        if r.ind not in self.ancillae_samples_dict.keys():
+                            self.ancillae_samples_dict[r.ind] = [val[:, i]]
+                        else:
+                            self.ancillae_samples_dict[r.ind].append(val[:, i])
 
-                    applied.append(cmd)
-
-                except NotApplicableError:
-                    # command is not applicable to the current backend type
-                    raise NotApplicableError(
-                        "The operation {} cannot be used with {}.".format(cmd.op, self.backend)
-                    ) from None
-
-                except NotImplementedError:
-                    # command not directly supported by backend API
-                    raise NotImplementedError(
-                        "The operation {} has not been implemented in {} for the arguments {}.".format(
-                            cmd.op, self.backend, kwargs
-                        )
-                    ) from None
+                applied.append(cmd)
 
             # Rest of operations applied as normal
             if type(cmd.op) not in (nongausspreps + ancilla_gates):
@@ -149,34 +129,26 @@ class BosonicBackend(BaseBosonic):
                     val = cmd.op.apply(cmd.reg, self, **kwargs)
                     if val is not None:
                         for i, r in enumerate(cmd.reg):
-                            if batches:
-                                samples_dict[r.ind] = val[:, :, i]
+                            samples_dict[r.ind] = val[:, i]
 
-                                # Internally also store all the measurement outcomes
-                                if r.ind not in all_samples:
-                                    all_samples[r.ind] = list()
-                                all_samples[r.ind].append(val[:, :, i])
-                            else:
-                                samples_dict[r.ind] = val[:, i]
-
-                                # Internally also store all the measurement outcomes
-                                if r.ind not in all_samples:
-                                    all_samples[r.ind] = list()
-                                all_samples[r.ind].append(val[:, i])
+                            # Internally also store all the measurement outcomes
+                            if r.ind not in all_samples:
+                                all_samples[r.ind] = list()
+                            all_samples[r.ind].append(val[:, i])
 
                     applied.append(cmd)
 
                 except NotApplicableError:
                     # command is not applicable to the current backend type
                     raise NotApplicableError(
-                        "The operation {} cannot be used with {}.".format(cmd.op, self.backend)
+                        "The operation {} cannot be used with the Bosonic Backend.".format(cmd.op)
                     ) from None
 
                 except NotImplementedError:
                     # command not directly supported by backend API
                     raise NotImplementedError(
-                        "The operation {} has not been implemented in {} for the arguments {}.".format(
-                            cmd.op, self.backend, kwargs
+                        "The operation {} has not been implemented in the Bosonic Backend for the arguments {}.".format(
+                            cmd.op, kwargs
                         )
                     ) from None
 
@@ -196,7 +168,6 @@ class BosonicBackend(BaseBosonic):
         from strawberryfields.ops import (
             Bosonic,
             Catstate,
-            Comb,
             DensityMatrix,
             Fock,
             GKP,
@@ -234,9 +205,6 @@ class BosonicBackend(BaseBosonic):
                     elif type(cmd.op) == GKP:
                         weights, means, covs = self.prepare_gkp(*pars)
 
-                    elif type(cmd.op) == Comb:
-                        weights, means, covs = self.prepare_comb(*pars)
-
                     elif type(cmd.op) == Fock:
                         weights, means, covs = self.prepare_fock(*pars)
 
@@ -266,15 +234,15 @@ class BosonicBackend(BaseBosonic):
 
         # Find all possible combinations of means and combs of the
         # Gaussians between the modes.
-        mean_combs = it.product(*init_means)
-        cov_combs = it.product(*init_covs)
+        mean_combos = it.product(*init_means)
+        cov_combos = it.product(*init_covs)
 
         # Tensor product of the weights.
         weights = kron_list(init_weights)
         # De-nest the means iterator.
-        means = np.array([[a for b in tup for a in b] for tup in mean_combs], dtype=complex)
+        means = np.array([[a for b in tup for a in b] for tup in mean_combos], dtype=complex)
         # Stack covs appropriately.
-        covs = np.array([block_diag(*tup) for tup in cov_combs])
+        covs = np.array([block_diag(*tup) for tup in cov_combos])
 
         # Declare circuit attributes.
         self.circuit.weights = weights
@@ -367,6 +335,8 @@ class BosonicBackend(BaseBosonic):
         Args:
             alpha (float): alpha value of cat state
             phi (float): phi value of cat state
+            cutoff (float): if using the 'real' representation, this determines 
+                how many terms to keep
             desc (string): whether to use the 'real' or 'complex' representation
             D (float): for 'real rep., quality parameter of approximation
 
@@ -601,7 +571,7 @@ class BosonicBackend(BaseBosonic):
                 return weights, means, covs
 
             elif desc == "complex":
-                raise ValueError("The complex description of GKP is not implemented")
+                raise NotImplementedError("The complex description of GKP is not implemented")
         else:
             raise ValueError("Only square GKP are implemented for now")
 
@@ -645,10 +615,6 @@ class BosonicBackend(BaseBosonic):
         weights = weights / np.sum(weights)
         return weights, means, covs
 
-    def prepare_comb(self, n, d, r, cutoff):
-        """ Prepares the arrays of weights, means and covs of a squeezed comb state"""
-        raise ValueError("Squeezed comb states not implemented")
-
     def rotation(self, phi, mode):
         self.circuit.phase_shift(phi, mode)
 
@@ -658,11 +624,9 @@ class BosonicBackend(BaseBosonic):
     def squeeze(self, r, phi, mode):
         self.circuit.squeeze(r, phi, mode)
 
-    def mb_squeeze(self, mode, r, phi, r_anc, eta_anc, avg):
+    def mb_squeeze_avg(self, mode, r, phi, r_anc, eta_anc):
         r"""Squeeze mode by the amount ``r*exp(1j*phi)`` using measurement-based squeezing.
-
-        Depending on avg, this applies the average or single-shot map, returning the ancillary
-        measurement outcome.
+        Here, the average, deterministic Gaussian CPTP map is applied.
 
         Args:
             k (int): mode to be squeezed
@@ -670,15 +634,23 @@ class BosonicBackend(BaseBosonic):
             phi (float): target squeezing phase
             r_anc (float): squeezing magnitude of the ancillary mode
             eta_anc(float): detection efficiency of the ancillary mode
-            avg (bool): whether to apply the average or single-shot map
+        """
+        self.circuit.mb_squeeze_avg(mode, r, phi, r_anc, eta_anc)
+    
+    def mb_squeeze_single_shot(self, mode, r, phi, r_anc, eta_anc):
+        r"""Squeeze mode by the amount ``r*exp(1j*phi)`` using measurement-based squeezing.
+        Here, the single-shot map is applied, returning the ancillary measurement outcome.
+
+        Args:
+            k (int): mode to be squeezed
+            r (float): target squeezing magnitude
+            phi (float): target squeezing phase
+            r_anc (float): squeezing magnitude of the ancillary mode
+            eta_anc(float): detection efficiency of the ancillary mode
 
         Returns:
-            float or None: if not avg, the measurement outcome of the ancilla
+            float: the measurement outcome of the ancilla
         """
-        if avg:
-            self.circuit.mb_squeeze_avg(mode, r, phi, r_anc, eta_anc)
-            return None
-
         ancilla_val = self.circuit.mb_squeeze_single_shot(mode, r, phi, r_anc, eta_anc)
         return ancilla_val
 
@@ -712,12 +684,12 @@ class BosonicBackend(BaseBosonic):
             val = select * 2 / np.sqrt(2 * self.circuit.hbar)
             self.circuit.post_select_homodyne(mode, val, **kwargs)
 
-        return np.array([val * np.sqrt(2 * self.circuit.hbar) / 2])
+        return np.array([[val * np.sqrt(2 * self.circuit.hbar) / 2]])
 
     def measure_heterodyne(self, mode, shots=1, select=None):
         if select is None:
             res = 0.5 * self.circuit.heterodyne(mode, shots=shots)
-            return np.array([res[:, 0] + 1j * res[:, 1]])
+            return np.array([[res[:, 0] + 1j * res[:, 1]]])
 
         res = select
         self.circuit.post_select_heterodyne(mode, select)

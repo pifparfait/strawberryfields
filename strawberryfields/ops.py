@@ -793,12 +793,9 @@ class Fock(Preparation):
 
 
 class Bosonic(Preparation):
-    def __init__(self, weights=None, covs=None, means=None):
-        self.p.append(weights, covs, means)
-        return
-
-    def _apply(self, reg, backend, **kwargs):
-        return
+    def __init__(self, weights=None, means=None, covs=None):
+        super().__init__([weights,means,covs])
+        
 
 
 class Catstate(Preparation):
@@ -880,10 +877,6 @@ class GKP(Preparation):
     def __init__(self, state=[0, 0], epsilon=0.2, cutoff=1e-12, desc="real", shape="square"):
         super().__init__([state, epsilon, cutoff, desc, shape])
 
-
-class Comb(Preparation):
-    r"""Prepare a mode in a comb state."""
-    pass
 
 
 class Ket(Preparation):
@@ -1322,10 +1315,11 @@ class MbSgate(Channel):
     def _apply(self, reg, backend, **kwargs):
         r, phi, r_anc, eta_anc, avg = par_evaluate(self.p)
         if avg:
-            backend.mbsqueeze(*reg, r, phi, r_anc, eta_anc, avg)
+            backend.mb_squeeze_avg(*reg, r, phi, r_anc, eta_anc)
+            return None
         if not avg:
             s = np.sqrt(sf.hbar / 2)
-            ancilla_val = backend.mbsqueeze(*reg, r, phi, r_anc, eta_anc, avg)
+            ancilla_val = backend.mb_squeeze_single_shot(*reg, r, phi, r_anc, eta_anc)
             return ancilla_val / s
 
 
@@ -2854,7 +2848,7 @@ simple_state_preparations = (
     Catstate,
     Thermal,
 )  # have __init__ methods with default arguments
-state_preparations = simple_state_preparations + (Ket, DensityMatrix, Bosonic, GKP, Comb)
+state_preparations = simple_state_preparations + (Ket, DensityMatrix, Bosonic, GKP)
 
 measurements = (MeasureFock, MeasureHomodyne, MeasureHeterodyne, MeasureThreshold)
 
