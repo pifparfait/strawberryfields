@@ -619,9 +619,9 @@ class TestFidelities:
 
 @pytest.mark.backends("bosonic")
 class TestBosonicState:
-    """Tests bosonic state function."""
+    """Tests the bosonic state class."""
     def test_weights(self,setup_backend):
-        """Test weights are correct for a Gaussian state."""
+        """Test weights are correct for a Gaussian state represented using the bosonic backend."""
         backend = setup_backend(1)
         backend.prepare_coherent_state(1,0,0)
         weights = backend.state().weights()
@@ -630,7 +630,7 @@ class TestBosonicState:
         assert sum(weights) == 1
         
     def test_bosonic_purity(self,setup_backend,tol):
-        """Test purities are correct for Gaussian states."""
+        """Test purities are correct for Gaussian states represented using the bosonic backend."""
         backend = setup_backend(1)
         backend.prepare_coherent_state(r,phi,0)
         purity1 = backend.state().purity()
@@ -655,3 +655,11 @@ class TestBosonicState:
         dm_compare = np.zeros((10,10))
         dm_compare[0,0] = 1
         assert np.allclose(dm,dm_compare)
+    
+    def test_is_vacuum(self,setup_backend):
+        """Tests fidelity_vacuum method in BaseBosonicState."""
+        backend = setup_backend(1)
+        backend.prepare_vacuum_state(0)
+        assert np.allclose(backend.state().fidelity_vacuum(),1)
+        backend.del_mode(0)
+        assert np.allclose(backend.state().fidelity_vacuum(),1)

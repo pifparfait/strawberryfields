@@ -139,6 +139,8 @@ class BaseBackend:
         * "gaussian": for manipulations in the Gaussian representation using the
           displacements and covariance matrices
         * "fock_basis": for manipulations in the Fock representation
+        * "bosonic": for manipulations of states represented as linear combinations
+          of Gaussian functions in phase space
         * "mixed_states": for representations where the quantum state is mixed
         * "batched": allows for a multiple circuits to be simulated in parallel
 
@@ -688,16 +690,19 @@ class BaseGaussian(BaseBackend):
 
 
 class BaseBosonic(BaseGaussian):
-    """Abstract base class for backends that are only capable of bosonic state manipulation."""
+    """Abstract base class for backends that are only capable of manipulating states
+    represented as linear combinations of Gaussian functions in phase space."""
 
     compiler = "bosonic"
 
     def __init__(self):
         super().__init__()
-        self._supported["bosonic"] = True
+        self._supported["gaussian_linear_combo"] = True
 
     def prepare_gaussian_state(self, r, V, modes):
         r"""Prepare a Gaussian state.
+
+        Note the different basis-ordering from the :class:`~.GaussianBackend`.
 
         The specified modes are traced out and replaced with a Gaussian state
         provided via a vector of means and a covariance matrix.
@@ -709,5 +714,18 @@ class BaseBosonic(BaseGaussian):
                 If the modes are not sorted, this is taken into account when preparing the state.
                 I.e., when a two mode state is prepared with ``modes=[3,1]``, the first
                 mode of the given state goes into mode 3 and the second mode goes into mode 1.
+
+        Raises:
+            ValueError: if the shapes of r or V do not match the number of modes.
+        """
+        raise NotImplementedError
+
+    def state(self, modes=None, **kwargs):
+        """Returns the state of the quantum simulation.
+
+        See :meth:`.BaseBackend.state`.
+
+        Returns:
+            BaseBosonicState: state description
         """
         raise NotImplementedError
